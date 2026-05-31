@@ -27,17 +27,11 @@ impl QuidReputationContract {
     /// Bootstrap admin for the contract
     pub fn bootstrap_admin(env: Env, admin: Address) -> Result<(), QuidError> {
         // Only allow setting admin if not already set
-        if env
-            .storage()
-            .persistent()
-            .has(&DataKey::Admin)
-        {
+        if env.storage().persistent().has(&DataKey::Admin) {
             return Err(QuidError::NotAuthorized);
         }
 
-        env.storage()
-            .persistent()
-            .set(&DataKey::Admin, &admin);
+        env.storage().persistent().set(&DataKey::Admin, &admin);
 
         env.storage()
             .persistent()
@@ -102,9 +96,11 @@ impl QuidReputationContract {
             .persistent()
             .set(&DataKey::Attestation(attestation_id), &attestation);
 
-        env.storage()
-            .persistent()
-            .extend_ttl(&DataKey::Attestation(attestation_id), 5184000, 5184000);
+        env.storage().persistent().extend_ttl(
+            &DataKey::Attestation(attestation_id),
+            5184000,
+            5184000,
+        );
 
         // Publish AttestationIssuedEvent
         AttestationIssuedEvent {
@@ -145,9 +141,11 @@ impl QuidReputationContract {
             .persistent()
             .set(&DataKey::Attestation(attestation_id), &attestation);
 
-        env.storage()
-            .persistent()
-            .extend_ttl(&DataKey::Attestation(attestation_id), 5184000, 5184000);
+        env.storage().persistent().extend_ttl(
+            &DataKey::Attestation(attestation_id),
+            5184000,
+            5184000,
+        );
 
         // Publish AttestationRevokedEvent
         AttestationRevokedEvent { attestation_id }.publish(&env);
