@@ -7,6 +7,21 @@ mod types;
 use error::ReputationError;
 use types::{Attestation, DataKey};
 
+use soroban_sdk::contractevent;
+
+#[contractevent(topics = ["profile", "updated"])]
+pub struct ProfileUpdatedEvent {}
+
+#[contractevent(topics = ["attestation", "issued"])]
+pub struct AttestationIssuedEvent {
+    pub attestation_id: u64,
+}
+
+#[contractevent(topics = ["attestation", "revoked"], data_format = "single-value")]
+pub struct AttestationRevokedEvent {
+    pub attestation_id: u64,
+}
+
 #[contract]
 pub struct QuidReputationContract;
 
@@ -65,6 +80,7 @@ impl QuidReputationContract {
             5184000,
         );
 
+        AttestationIssuedEvent { attestation_id }.publish(&env);
         Ok(attestation_id)
     }
 
@@ -107,6 +123,7 @@ impl QuidReputationContract {
             5184000,
         );
 
+        AttestationRevokedEvent { attestation_id }.publish(&env);
         Ok(())
     }
 
