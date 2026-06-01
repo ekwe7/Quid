@@ -15,11 +15,11 @@ impl QuidReputationContract {
     /// Initialize the contract with an admin address
     pub fn initialize(env: Env, admin: Address) -> Result<(), ReputationError> {
         admin.require_auth();
-        
+
         if env.storage().instance().has(&DataKey::Admin) {
             return Err(ReputationError::InvalidInput);
         }
-        
+
         env.storage().instance().set(&DataKey::Admin, &admin);
         Ok(())
     }
@@ -59,9 +59,11 @@ impl QuidReputationContract {
             .persistent()
             .set(&DataKey::Attestation(attestation_id), &attestation);
 
-        env.storage()
-            .persistent()
-            .extend_ttl(&DataKey::Attestation(attestation_id), 5184000, 5184000);
+        env.storage().persistent().extend_ttl(
+            &DataKey::Attestation(attestation_id),
+            5184000,
+            5184000,
+        );
 
         Ok(attestation_id)
     }
@@ -99,9 +101,11 @@ impl QuidReputationContract {
             .persistent()
             .set(&DataKey::Attestation(attestation_id), &attestation);
 
-        env.storage()
-            .persistent()
-            .extend_ttl(&DataKey::Attestation(attestation_id), 5184000, 5184000);
+        env.storage().persistent().extend_ttl(
+            &DataKey::Attestation(attestation_id),
+            5184000,
+            5184000,
+        );
 
         Ok(())
     }
