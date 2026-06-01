@@ -1,11 +1,16 @@
-.PHONY: build
-build:
-	cargo build --target wasm32-unknown-unknown --release
+default: build
 
-.PHONY: test
-test:
+all: test
+
+test: build
 	cargo test
 
-.PHONY: clean
+build:
+	stellar contract build
+	@ls -l target/wasm32v1-none/release/*.wasm
+
+fmt:
+	cargo fmt --all
+
 clean:
 	cargo clean
