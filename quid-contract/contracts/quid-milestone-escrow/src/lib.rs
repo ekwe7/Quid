@@ -92,7 +92,9 @@ impl MilestoneEscrowContract {
             escrow_balance: initial_escrow,
         };
 
-        env.storage().persistent().set(&DataKey::Program(program_id), &program);
+        env.storage()
+            .persistent()
+            .set(&DataKey::Program(program_id), &program);
         ProgramCreatedEvent { program_id, owner }.publish(&env);
 
         Ok(program_id)
@@ -190,7 +192,9 @@ impl MilestoneEscrowContract {
         env.storage()
             .persistent()
             .set(&DataKey::Milestone(program_id, milestone_id), &milestone);
-        env.storage().persistent().set(&DataKey::Program(program_id), &program);
+        env.storage()
+            .persistent()
+            .set(&DataKey::Program(program_id), &program);
 
         MilestonePaidEvent {
             program_id,
@@ -225,7 +229,9 @@ impl MilestoneEscrowContract {
         }
 
         program.status = ProgramStatus::Cancelled;
-        env.storage().persistent().set(&DataKey::Program(program_id), &program);
+        env.storage()
+            .persistent()
+            .set(&DataKey::Program(program_id), &program);
 
         ProgramCancelledEvent {
             program_id,
@@ -259,7 +265,9 @@ impl MilestoneEscrowContract {
 
         let old_status = program.status;
         program.status = new_status;
-        env.storage().persistent().set(&DataKey::Program(program_id), &program);
+        env.storage()
+            .persistent()
+            .set(&DataKey::Program(program_id), &program);
 
         ProgramStatusChangedEvent {
             program_id,
