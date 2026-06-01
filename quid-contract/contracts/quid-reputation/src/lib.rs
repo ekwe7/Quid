@@ -22,11 +22,7 @@ impl QuidReputationContract {
     pub fn set_admin(env: Env, admin: Address) -> Result<(), ReputationError> {
         admin.require_auth();
 
-        if env
-            .storage()
-            .instance()
-            .has(&DataKey::Admin)
-        {
+        if env.storage().instance().has(&DataKey::Admin) {
             return Err(ReputationError::AdminAlreadySet);
         }
 
@@ -67,11 +63,9 @@ impl QuidReputationContract {
             .persistent()
             .set(&DataKey::Profile(owner.clone()), &profile);
 
-        env.storage().persistent().extend_ttl(
-            &DataKey::Profile(owner),
-            5_184_000,
-            5_184_000,
-        );
+        env.storage()
+            .persistent()
+            .extend_ttl(&DataKey::Profile(owner), 5_184_000, 5_184_000);
 
         Ok(())
     }
@@ -101,11 +95,9 @@ impl QuidReputationContract {
             .persistent()
             .set(&DataKey::Profile(owner.clone()), &profile);
 
-        env.storage().persistent().extend_ttl(
-            &DataKey::Profile(owner),
-            5_184_000,
-            5_184_000,
-        );
+        env.storage()
+            .persistent()
+            .extend_ttl(&DataKey::Profile(owner), 5_184_000, 5_184_000);
 
         Ok(())
     }
@@ -123,11 +115,9 @@ impl QuidReputationContract {
             .persistent()
             .set(&DataKey::Profile(owner.clone()), &profile);
 
-        env.storage().persistent().extend_ttl(
-            &DataKey::Profile(owner),
-            5_184_000,
-            5_184_000,
-        );
+        env.storage()
+            .persistent()
+            .extend_ttl(&DataKey::Profile(owner), 5_184_000, 5_184_000);
 
         Ok(())
     }
