@@ -1,11 +1,17 @@
 #![no_std]
-use soroban_sdk::{contract, contractimpl, Address, Env, String};
+use soroban_sdk::{contract, contractevent, contractimpl, Address, Env, String};
 
 mod error;
 mod types;
 
 use error::ReputationError;
 use types::{Attestation, DataKey, Profile};
+
+#[contractevent(topics = ["attestation", "revoked"])]
+pub struct AttestationRevokedEvent {
+    pub attestation_id: u64,
+    pub revoked_by: Address,
+}
 
 #[contract]
 pub struct QuidReputationContract;
@@ -106,6 +112,13 @@ impl QuidReputationContract {
             5184000,
             5184000,
         );
+
+        // Publish AttestationRevokedEvent
+        AttestationRevokedEvent {
+            attestation_id,
+            revoked_by: caller,
+        }
+        .publish(&env);
 
         Ok(())
     }

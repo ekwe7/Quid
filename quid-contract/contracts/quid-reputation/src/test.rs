@@ -1,7 +1,10 @@
 #![cfg(test)]
 
 use super::*;
-use soroban_sdk::{testutils::Address as _, Address, Env, String};
+use soroban_sdk::{
+    testutils::{Address as _, Events},
+    Address, Env, String,
+};
 use types::Profile;
 
 fn setup_test_env() -> (Env, Address, Address) {
@@ -276,4 +279,32 @@ fn test_get_profile_not_found() {
 
     let subject = Address::generate(&env);
     client.get_profile(&subject);
+}
+
+#[test]
+fn test_revoke_attestation_publishes_event() {
+    let (env, contract_id, _admin) = setup_test_env();
+    let client = QuidReputationContractClient::new(&env, &contract_id);
+
+    let issuer = Address::generate(&env);
+    let subject = Address::generate(&env);
+
+    let attestation_type = String::from_str(&env, "skill");
+    let data_cid = String::from_str(&env, "QmTest123");
+
+    let attestation_id = client.issue_attestation(&issuer, &subject, &attestation_type, &data_cid);
+
+    // Revoke the attestation
+    client.revoke_attestation(&issuer, &attestation_id);
+
+    // Verify the event was published
+    let events = env.events().all();
+    let event = events.last().unwrap();
+
+    // Check that the event contains the attestation_id and revoked_by
+    assert_eq!(event.0, contract_id);
+
+    // The event topics should contain "attestation" and "revoked"
+    let topics = event.1.clone();
+    assert_eq!(topics.len(), 2);
 }
