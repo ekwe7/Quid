@@ -1,12 +1,15 @@
-use soroban_sdk::{contracttype, Address};
+use soroban_sdk::{contracttype, Address, String};
 
-/// Storage keys used by the reputation contract.
 #[contracttype]
-pub enum DataKey {
-    /// The contract administrator address.
-    Admin,
-    /// Per-subject reputation profile.
-    Profile(Address),
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct Attestation {
+    pub id: u64,
+    pub issuer: Address,
+    pub subject: Address,
+    pub attestation_type: String,
+    pub data_cid: String,
+    pub issued_at: u64,
+    pub revoked: bool,
 }
 
 /// On-chain reputation profile for a single subject address.
@@ -21,4 +24,13 @@ pub struct Profile {
     pub missions_completed: u32,
     /// Total number of missions created (for creators).
     pub missions_created: u32,
+}
+
+#[contracttype]
+pub enum DataKey {
+    Attestation(u64),
+    AttestationCount,
+    Admin,
+    /// Per-subject reputation profile.
+    Profile(Address),
 }

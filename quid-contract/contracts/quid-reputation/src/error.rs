@@ -3,10 +3,10 @@ use soroban_sdk::contracterror;
 #[contracterror]
 #[derive(Copy, Clone, Debug, Eq, PartialEq)]
 pub enum ReputationError {
-    /// No admin has been bootstrapped yet.
-    AdminNotSet = 1,
-    /// Caller is not the contract admin.
-    NotAdmin = 2,
+    NotAuthorized = 1,
+    AttestationNotFound = 2,
+    AlreadyRevoked = 3,
+    InvalidInput = 4,
     /// No profile exists for the given subject address.
-    ProfileNotFound = 3,
+    ProfileNotFound = 5,
 }
