@@ -54,6 +54,7 @@ fn test_issue_attestation() {
     assert_eq!(attestation.attestation_type, attestation_type);
     assert_eq!(attestation.data_cid, data_cid);
     assert!(!attestation.revoked);
+    assert!(!attestation.revoked);
 }
 
 #[test]
@@ -164,6 +165,7 @@ fn test_attestation_exists() {
     let issuer = Address::generate(&env);
     let subject = Address::generate(&env);
 
+    assert!(!client.attestation_exists(&1));
     assert!(!client.attestation_exists(&1));
 
     let attestation_type = String::from_str(&env, "skill");
