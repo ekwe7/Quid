@@ -10,5 +10,4 @@ pub enum QuidError {
     AlreadyRevoked = 4,
     AdminNotSet = 5,
     InvalidLabel = 6,
-
 }

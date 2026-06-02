@@ -18,7 +18,6 @@ pub enum DataKey {
     Attestation(u64),
     AttestationCount,
     Admin,
-
 }
 
 #[contracttype]
@@ -26,5 +25,4 @@ pub enum AttestationKind {
     Contributor,
     Expert,
     Reviewer,
-
 }
