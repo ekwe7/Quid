@@ -50,12 +50,10 @@ impl QuidReputationContract {
     }
 
     /// Issue an attestation for a subject
-
     pub fn issue_attestation(
         env: Env,
         issuer: Address,
         subject: Address,
-
         kind: String,
         label: String,
         metadata_cid: Option<String>,
@@ -84,7 +82,6 @@ impl QuidReputationContract {
 
         let attestation = Attestation {
             id: attestation_id,
-
             issuer: issuer.clone(),
             subject: subject.clone(),
             kind,
