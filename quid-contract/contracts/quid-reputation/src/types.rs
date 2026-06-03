@@ -28,9 +28,9 @@ pub struct Profile {
 
 #[contracttype]
 pub enum DataKey {
-    Attestation(u64),
-    AttestationCount,
     Admin,
     /// Per-subject reputation profile.
     Profile(Address),
+    Attestation(u64),
+    AttestationCount,
 }
