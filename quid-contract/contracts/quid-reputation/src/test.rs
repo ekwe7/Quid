@@ -8,7 +8,7 @@ fn setup_test_env() -> (Env, Address, QuidReputationContractClient<'static>) {
     env.mock_all_auths();
 
     let admin = Address::generate(&env);
-    let contract_id = env.register_contract(None, QuidReputationContract);
+    let contract_id = env.register(QuidReputationContract, ());
     let client = QuidReputationContractClient::new(&env, &contract_id);
 
     client.bootstrap_admin(&admin);
@@ -20,7 +20,7 @@ fn setup_test_env() -> (Env, Address, QuidReputationContractClient<'static>) {
 fn test_bootstrap_admin() {
     let env = Env::default();
     let admin = Address::generate(&env);
-    let contract_id = env.register_contract(None, QuidReputationContract);
+    let contract_id = env.register(QuidReputationContract, ());
     let client = QuidReputationContractClient::new(&env, &contract_id);
 
     client.bootstrap_admin(&admin);
@@ -35,7 +35,7 @@ fn test_bootstrap_admin_twice_fails() {
     env.mock_all_auths();
     let admin1 = Address::generate(&env);
     let admin2 = Address::generate(&env);
-    let contract_id = env.register_contract(None, QuidReputationContract);
+    let contract_id = env.register(QuidReputationContract, ());
     let client = QuidReputationContractClient::new(&env, &contract_id);
 
     client.bootstrap_admin(&admin1);
@@ -64,7 +64,7 @@ fn test_issue_attestation() {
     let attestation = client.get_attestation(&attestation_id);
     assert_eq!(attestation.issuer, issuer);
     assert_eq!(attestation.subject, subject);
-    assert_eq!(attestation.revoked, false);
+    assert!(!attestation.revoked);
 }
 
 #[test]
@@ -107,7 +107,7 @@ fn test_revoke_attestation() {
     client.revoke_attestation(&attestation_id);
 
     let attestation = client.get_attestation(&attestation_id);
-    assert_eq!(attestation.revoked, true);
+    assert!(attestation.revoked);
 }
 
 #[test]
@@ -164,7 +164,7 @@ fn test_get_profile_not_found() {
 
 #[test]
 fn test_store_and_get_profile() {
-    let (env, admin, client) = setup_test_env();
+    let (env, _admin, client) = setup_test_env();
     let subject = Address::generate(&env);
 
     client.increment_success(&subject, &0); // ensure profile exists
