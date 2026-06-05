@@ -6,13 +6,13 @@ use soroban_sdk::{testutils::Address as _, Address, Env, String};
 fn setup_test_env() -> (Env, Address, QuidReputationContractClient<'static>) {
     let env = Env::default();
     env.mock_all_auths();
-    
+
     let admin = Address::generate(&env);
     let contract_id = env.register_contract(None, QuidReputationContract);
     let client = QuidReputationContractClient::new(&env, &contract_id);
-    
+
     client.bootstrap_admin(&admin);
-    
+
     (env, admin, client)
 }
 
