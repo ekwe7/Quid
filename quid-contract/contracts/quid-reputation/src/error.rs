@@ -4,13 +4,8 @@ use soroban_sdk::contracterror;
 #[derive(Copy, Clone, Debug, Eq, PartialEq)]
 pub enum ReputationError {
     NotAuthorized = 1,
-    ProfileNotFound = 2,
-    AdminAlreadySet = 3,
-    InvalidScore = 4,
-    AttestationNotFound = 5,
-    InvalidExpiryTime = 6,
-    AlreadyRevoked = 7,
-    AdminNotSet = 8,
-    InvalidLabel = 9,
-    InvalidRewardAmount = 10,
+    InvalidInput = 2,
+    AlreadyRevoked = 3,
+    AttestationNotFound = 4,
+    ProfileNotFound = 5,
 }
