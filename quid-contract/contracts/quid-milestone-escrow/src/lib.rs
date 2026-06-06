@@ -1,57 +1,29 @@
 #![no_std]
-use soroban_sdk::{contract, contractevent, contractimpl, contracttype, Address, Env};
+use soroban_sdk::{contract, contractevent, contractimpl, token, Address, Env, String};
 
 mod error;
+mod types;
+
 use error::MilestoneEscrowError;
-
-#[contracttype]
-pub enum ProgramStatus {
-    Active,
-    Completed,
-    Cancelled,
-}
-
-#[contracttype]
-pub enum DataKey {
-    Program(u64),
-    Milestone(u64, u32),
-}
-
-#[contracttype]
-pub struct Program {
-    pub id: u64,
-    pub owner: Address,
-    pub status: ProgramStatus,
-    pub escrow_balance: i128,
-}
-
-#[contracttype]
-pub struct Milestone {
-    pub program_id: u64,
-    pub milestone_id: u32,
-    pub amount: i128,
-    pub pending: bool,
-}
+use types::{DataKey, Milestone, MilestoneStatus, Program, ProgramStatus};
 
 #[contractevent(topics = ["program", "created"])]
 pub struct ProgramCreatedEvent {
     pub program_id: u64,
-    pub owner: Address,
+    pub sponsor: Address,
+    pub recipient: Address,
+}
+
+#[contractevent(topics = ["program", "status"])]
+pub struct ProgramStatusChangedEvent {
+    pub program_id: u64,
+    pub status: ProgramStatus,
 }
 
 #[contractevent(topics = ["milestone", "added"])]
 pub struct MilestoneAddedEvent {
     pub program_id: u64,
-    pub milestone_id: u32,
-    pub amount: i128,
-}
-
-#[contractevent(topics = ["milestone", "paid"])]
-pub struct MilestonePaidEvent {
-    pub program_id: u64,
-    pub milestone_id: u32,
-    pub payer: Address,
-    pub payee: Address,
+    pub milestone_id: u64,
     pub amount: i128,
 }
 
@@ -71,27 +43,95 @@ pub struct ProgramCancelledEvent {
 }
 
 #[contract]
-pub struct MilestoneEscrowContract;
+pub struct QuidMilestoneEscrowContract;
 
 #[contractimpl]
-impl MilestoneEscrowContract {
+impl QuidMilestoneEscrowContract {
+    // ── Status helpers (used by tests for default/roundtrip) ──────────────
+
+    pub fn get_program_status(env: Env) -> ProgramStatus {
+        env.storage()
+            .instance()
+            .get(&DataKey::ProgramStatus)
+            .unwrap_or_default()
+    }
+
+    pub fn set_program_status(env: Env, status: ProgramStatus) {
+        env.storage()
+            .instance()
+            .set(&DataKey::ProgramStatus, &status);
+    }
+
+    pub fn get_milestone_status(env: Env) -> MilestoneStatus {
+        env.storage()
+            .instance()
+            .get(&DataKey::MilestoneStatus)
+            .unwrap_or_default()
+    }
+
+    pub fn set_milestone_status(env: Env, status: MilestoneStatus) {
+        env.storage()
+            .instance()
+            .set(&DataKey::MilestoneStatus, &status);
+    }
+
+    // ── Program counter ───────────────────────────────────────────────────
+
+    pub fn get_program_count(env: Env) -> u64 {
+        env.storage()
+            .instance()
+            .get(&DataKey::ProgramCount)
+            .unwrap_or(0_u64)
+    }
+
+    // ── Core contract methods ─────────────────────────────────────────────
+
     pub fn create_program(
         env: Env,
-        owner: Address,
-        program_id: u64,
-        initial_escrow: i128,
+        sponsor: Address,
+        recipient: Address,
+        token: Address,
+        total_amount: i128,
+        reviewer: Option<Address>,
+        metadata_cid: Option<String>,
     ) -> Result<u64, MilestoneEscrowError> {
-        owner.require_auth();
+        sponsor.require_auth();
 
-        if initial_escrow <= 0 {
+        if total_amount <= 0 {
             return Err(MilestoneEscrowError::InvalidAmount);
         }
 
+        // Transfer funds from sponsor into the contract
+        token::Client::new(&env, &token).transfer(
+            &sponsor,
+            env.current_contract_address(),
+            &total_amount,
+        );
+
+        let mut count: u64 = env
+            .storage()
+            .instance()
+            .get(&DataKey::ProgramCount)
+            .unwrap_or(0);
+        count += 1;
+        env.storage().instance().set(&DataKey::ProgramCount, &count);
+
+        let program_id = count;
+        let created_at = env.ledger().timestamp();
+
         let program = Program {
             id: program_id,
-            owner: owner.clone(),
+            sponsor: sponsor.clone(),
+            recipient: recipient.clone(),
+            reviewer,
+            token,
+            total_amount,
+            allocated_amount: 0,
+            released_amount: 0,
+            milestone_count: 0,
+            metadata_cid,
+            created_at,
             status: ProgramStatus::Active,
-            escrow_balance: initial_escrow,
         };
 
         env.storage()
@@ -104,7 +144,12 @@ impl MilestoneEscrowContract {
             recipient,
         }
         .publish(&env);
-        ProgramStatusChangedEvent { program_id, status }.publish(&env);
+
+        ProgramStatusChangedEvent {
+            program_id,
+            status: ProgramStatus::Active,
+        }
+        .publish(&env);
 
         Ok(program_id)
     }
@@ -171,47 +216,19 @@ impl MilestoneEscrowContract {
         }
         .publish(&env);
 
-        Ok(())
+        Ok(milestone_id)
     }
 
-    pub fn pay_milestone(
+    pub fn get_milestone(
         env: Env,
-        payer: Address,
         program_id: u64,
-        milestone_id: u32,
-        payee: Address,
-        amount: i128,
-    ) -> Result<(), MilestoneEscrowError> {
-        payer.require_auth();
-
-        let mut program: Program = env
-            .storage()
-            .persistent()
-            .get(&DataKey::Program(program_id))
-            .ok_or(MilestoneEscrowError::ProgramNotFound)?;
-
-        if program.status != ProgramStatus::Active {
-            return Err(MilestoneEscrowError::ProgramClosed);
-        }
-
-        let mut milestone: Milestone = env
-            .storage()
+        milestone_id: u64,
+    ) -> Result<Milestone, MilestoneEscrowError> {
+        env.storage()
             .persistent()
             .get(&DataKey::Milestone(program_id, milestone_id))
-            .ok_or(MilestoneEscrowError::MilestoneNotFound)?;
-
-        if !milestone.pending {
-            return Err(MilestoneEscrowError::MilestoneNotPending);
-        }
-        if amount != milestone.amount {
-            return Err(MilestoneEscrowError::InvalidAmount);
-        }
-        if amount > program.escrow_balance {
-            return Err(MilestoneEscrowError::AmountExceedsEscrow);
-        }
-
-        milestone.pending = false;
-        program.escrow_balance -= amount;
+            .ok_or(MilestoneEscrowError::MilestoneNotFound)
+    }
 
     pub fn approve_milestone(
         env: Env,
@@ -223,39 +240,34 @@ impl MilestoneEscrowContract {
 
         let mut program = Self::get_program(env.clone(), program_id)?;
 
-        // #181 – authorize sponsor or optional reviewer without consuming the Option
         let is_sponsor = approver == program.sponsor;
         let is_reviewer = program.reviewer.as_ref() == Some(&approver);
         if !is_sponsor && !is_reviewer {
             return Err(MilestoneEscrowError::NotAuthorized);
         }
 
-        // #182 – reject non-active programs
         if program.status != ProgramStatus::Active {
             return Err(MilestoneEscrowError::InvalidState);
         }
 
-        // Reject milestones not in Pending status
         let mut milestone = Self::get_milestone(env.clone(), program_id, milestone_id)?;
         if milestone.status != MilestoneStatus::Pending {
             return Err(MilestoneEscrowError::InvalidState);
         }
 
-        // Transfer milestone funds from contract to recipient
+        let paid_amount = milestone.amount;
+
         token::Client::new(&env, &program.token).transfer(
             &env.current_contract_address(),
             &program.recipient,
-            &milestone.amount,
+            &paid_amount,
         );
 
-        // Mark the milestone as Paid and persist
-        let paid_amount = milestone.amount;
         milestone.status = MilestoneStatus::Paid;
         env.storage()
             .persistent()
             .set(&DataKey::Milestone(program_id, milestone_id), &milestone);
 
-        // Increase released_amount
         program.released_amount = program
             .released_amount
             .checked_add(paid_amount)
@@ -271,7 +283,6 @@ impl MilestoneEscrowContract {
         }
         .publish(&env);
 
-        // If all funds are released, move the program to Completed
         if program.released_amount >= program.total_amount {
             program.status = ProgramStatus::Completed;
             ProgramStatusChangedEvent {
@@ -297,17 +308,14 @@ impl MilestoneEscrowContract {
 
         let mut program = Self::get_program(env.clone(), program_id)?;
 
-        // #183 – only the program sponsor may cancel
         if sponsor != program.sponsor {
             return Err(MilestoneEscrowError::NotAuthorized);
         }
 
-        // Reject non-active programs
         if program.status != ProgramStatus::Active {
             return Err(MilestoneEscrowError::InvalidState);
         }
 
-        // Refund total_amount - released_amount from contract to sponsor
         let refund_amount = program.total_amount - program.released_amount;
         if refund_amount > 0 {
             token::Client::new(&env, &program.token).transfer(
@@ -317,7 +325,6 @@ impl MilestoneEscrowContract {
             );
         }
 
-        // Mark the program as Cancelled and persist
         program.status = ProgramStatus::Cancelled;
         env.storage()
             .persistent()
@@ -338,95 +345,6 @@ impl MilestoneEscrowContract {
 
         Ok(())
     }
-
-    pub fn get_program_status(env: Env) -> ProgramStatus {
-        env.storage()
-            .persistent()
-            .set(&DataKey::Milestone(program_id, milestone_id), &milestone);
-        env.storage()
-            .persistent()
-            .set(&DataKey::Program(program_id), &program);
-
-        MilestonePaidEvent {
-            program_id,
-            milestone_id,
-            payer: payer.clone(),
-            payee: payee.clone(),
-            amount,
-        }
-        .publish(&env);
-
-        Ok(())
-    }
-
-    pub fn cancel_program(
-        env: Env,
-        owner: Address,
-        program_id: u64,
-    ) -> Result<(), MilestoneEscrowError> {
-        owner.require_auth();
-
-        let mut program: Program = env
-            .storage()
-            .persistent()
-            .get(&DataKey::Program(program_id))
-            .ok_or(MilestoneEscrowError::ProgramNotFound)?;
-
-        if program.owner != owner {
-            return Err(MilestoneEscrowError::NotAuthorized);
-        }
-        if program.status != ProgramStatus::Active {
-            return Err(MilestoneEscrowError::ProgramClosed);
-        }
-
-        program.status = ProgramStatus::Cancelled;
-        env.storage()
-            .persistent()
-            .set(&DataKey::Program(program_id), &program);
-
-        ProgramCancelledEvent {
-            program_id,
-            cancelled_by: owner,
-        }
-        .publish(&env);
-
-        Ok(())
-    }
-
-    pub fn change_program_status(
-        env: Env,
-        owner: Address,
-        program_id: u64,
-        new_status: ProgramStatus,
-    ) -> Result<(), MilestoneEscrowError> {
-        owner.require_auth();
-
-        let mut program: Program = env
-            .storage()
-            .persistent()
-            .get(&DataKey::Program(program_id))
-            .ok_or(MilestoneEscrowError::ProgramNotFound)?;
-
-        if program.owner != owner {
-            return Err(MilestoneEscrowError::NotAuthorized);
-        }
-        if program.status == ProgramStatus::Cancelled && new_status != ProgramStatus::Cancelled {
-            return Err(MilestoneEscrowError::ProgramClosed);
-        }
-
-        let old_status = program.status;
-        program.status = new_status;
-        env.storage()
-            .persistent()
-            .set(&DataKey::Program(program_id), &program);
-
-        ProgramStatusChangedEvent {
-            program_id,
-            old_status,
-            new_status: program.status,
-        }
-        .publish(&env);
-
-        Ok(())
-    }
 }
+
+mod test;
