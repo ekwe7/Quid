@@ -53,10 +53,23 @@ impl QuidReputationContract {
         env: Env,
         issuer: Address,
         subject: Address,
-        attestation_type: String,
-        data_cid: String,
-    ) -> Result<u64, ReputationError> {
+        kind: String,
+        label: String,
+        metadata_cid: Option<String>,
+        expires_at: Option<u64>,
+    ) -> Result<u64, QuidError> {
         issuer.require_auth();
+
+        if label.is_empty() {
+            return Err(QuidError::InvalidLabel);
+        }
+
+        if let Some(expiry) = expires_at {
+            let now = env.ledger().timestamp();
+            if expiry <= now {
+                return Err(QuidError::InvalidExpiryTime);
+            }
+        }
 
         let attestation_id = Self::get_next_attestation_id(&env);
         let issued_at = env.ledger().timestamp();
@@ -81,6 +94,13 @@ impl QuidReputationContract {
             PROFILE_TTL_LEDGERS,
         );
 
+        AttestationIssuedEvent {
+            attestation_id,
+            issuer,
+            subject,
+        }
+        .publish(&env);
+
         Ok(attestation_id)
     }
 
@@ -102,6 +122,8 @@ impl QuidReputationContract {
 
         let mut attestation = Self::get_attestation(env.clone(), attestation_id)?;
 
+        attestation.issuer.require_auth();
+
         if attestation.revoked {
             return Err(ReputationError::AlreadyRevoked);
         }
@@ -112,6 +134,7 @@ impl QuidReputationContract {
         }
 
         attestation.revoked = true;
+
         env.storage()
             .persistent()
             .set(&DataKey::Attestation(attestation_id), &attestation);
@@ -229,6 +252,47 @@ impl QuidReputationContract {
                 score: 0,
                 missions_completed: 0,
                 missions_created: 0,
+            })
+    }
+}
+
+#[allow(dead_code)]
+impl QuidReputationContract {
+    pub(crate) fn require_admin(env: &Env, caller: &Address) -> Result<(), QuidError> {
+        let admin: Address = env
+            .storage()
+            .persistent()
+            .get(&DataKey::Admin)
+            .ok_or(QuidError::AdminNotSet)?;
+
+        admin.require_auth();
+
+        if *caller != admin {
+            return Err(QuidError::NotAuthorized);
+        }
+
+        Ok(())
+    }
+
+    pub(crate) fn store_profile(env: &Env, profile: &Profile) {
+        let key = DataKey::Profile(profile.subject.clone());
+        env.storage().persistent().set(&key, profile);
+        env.storage()
+            .persistent()
+            .extend_ttl(&key, PROFILE_TTL_LEDGERS, PROFILE_TTL_LEDGERS);
+    }
+
+    pub(crate) fn load_or_default(env: &Env, subject: Address) -> Profile {
+        env.storage()
+            .persistent()
+            .get(&DataKey::Profile(subject.clone()))
+            .unwrap_or(Profile {
+                subject,
+                score: 0,
+                successful_missions: 0,
+                missions_created: 0,
+                total_earnings: 0,
+                updated_at: env.ledger().timestamp(),
             })
     }
 }

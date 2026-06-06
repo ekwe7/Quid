@@ -1,8 +1,9 @@
 #![no_std]
+
 use soroban_sdk::{contract, contractevent, contractimpl, token, Address, Env, String};
 
 mod error;
-mod types;
+pub mod types;
 
 use error::MilestoneEscrowError;
 use types::{DataKey, Milestone, MilestoneStatus, Program, ProgramStatus};
@@ -47,45 +48,6 @@ pub struct QuidMilestoneEscrowContract;
 
 #[contractimpl]
 impl QuidMilestoneEscrowContract {
-    // ── Status helpers (used by tests for default/roundtrip) ──────────────
-
-    pub fn get_program_status(env: Env) -> ProgramStatus {
-        env.storage()
-            .instance()
-            .get(&DataKey::ProgramStatus)
-            .unwrap_or_default()
-    }
-
-    pub fn set_program_status(env: Env, status: ProgramStatus) {
-        env.storage()
-            .instance()
-            .set(&DataKey::ProgramStatus, &status);
-    }
-
-    pub fn get_milestone_status(env: Env) -> MilestoneStatus {
-        env.storage()
-            .instance()
-            .get(&DataKey::MilestoneStatus)
-            .unwrap_or_default()
-    }
-
-    pub fn set_milestone_status(env: Env, status: MilestoneStatus) {
-        env.storage()
-            .instance()
-            .set(&DataKey::MilestoneStatus, &status);
-    }
-
-    // ── Program counter ───────────────────────────────────────────────────
-
-    pub fn get_program_count(env: Env) -> u64 {
-        env.storage()
-            .instance()
-            .get(&DataKey::ProgramCount)
-            .unwrap_or(0_u64)
-    }
-
-    // ── Core contract methods ─────────────────────────────────────────────
-
     pub fn create_program(
         env: Env,
         sponsor: Address,
@@ -100,13 +62,14 @@ impl QuidMilestoneEscrowContract {
         if total_amount <= 0 {
             return Err(MilestoneEscrowError::InvalidAmount);
         }
-
+        
         // Transfer funds from sponsor into the contract
         token::Client::new(&env, &token).transfer(
             &sponsor,
             env.current_contract_address(),
             &total_amount,
         );
+        //
 
         let mut count: u64 = env
             .storage()
@@ -119,6 +82,14 @@ impl QuidMilestoneEscrowContract {
         let program_id = count;
         let created_at = env.ledger().timestamp();
 
+        token::Client::new(&env, &token).transfer(
+            &sponsor,
+            env.current_contract_address(),
+            &total_amount,
+        );
+
+        let program_id = Self::get_next_program_id(&env);
+        let status = ProgramStatus::Active;
         let program = Program {
             id: program_id,
             sponsor: sponsor.clone(),
@@ -130,8 +101,8 @@ impl QuidMilestoneEscrowContract {
             released_amount: 0,
             milestone_count: 0,
             metadata_cid,
-            created_at,
-            status: ProgramStatus::Active,
+            created_at: env.ledger().timestamp(),
+            status,
         };
 
         env.storage()
@@ -344,6 +315,50 @@ impl QuidMilestoneEscrowContract {
         .publish(&env);
 
         Ok(())
+    }
+
+    pub fn get_program_status(env: Env) -> ProgramStatus {
+        env.storage()
+            .persistent()
+            .get(&DataKey::ProgramStatus)
+            .unwrap_or_default()
+    }
+
+    pub fn set_program_status(env: Env, status: ProgramStatus) {
+        env.storage()
+            .persistent()
+            .set(&DataKey::ProgramStatus, &status);
+    }
+
+    pub fn get_milestone_status(env: Env) -> MilestoneStatus {
+        env.storage()
+            .persistent()
+            .get(&DataKey::MilestoneStatus)
+            .unwrap_or_default()
+    }
+
+    pub fn set_milestone_status(env: Env, status: MilestoneStatus) {
+        env.storage()
+            .persistent()
+            .set(&DataKey::MilestoneStatus, &status);
+    }
+
+    pub fn get_program_count(env: Env) -> u64 {
+        env.storage()
+            .instance()
+            .get(&DataKey::ProgramCount)
+            .unwrap_or(0)
+    }
+
+    fn get_next_program_id(env: &Env) -> u64 {
+        let mut count: u64 = env
+            .storage()
+            .instance()
+            .get(&DataKey::ProgramCount)
+            .unwrap_or(0);
+        count += 1;
+        env.storage().instance().set(&DataKey::ProgramCount, &count);
+        count
     }
 }
 
