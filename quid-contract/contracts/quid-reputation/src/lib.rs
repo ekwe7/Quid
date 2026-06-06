@@ -1,25 +1,18 @@
 #![no_std]
-
 use soroban_sdk::{contract, contractevent, contractimpl, Address, Env, String};
 
 mod error;
 mod types;
 
-use error::QuidError;
+use error::ReputationError;
 use types::{Attestation, DataKey, Profile};
 
 const PROFILE_TTL_LEDGERS: u32 = 5_184_000;
 
-#[contractevent(topics = ["attestation", "issued"])]
-pub struct AttestationIssuedEvent {
-    pub attestation_id: u64,
-    pub issuer: Address,
-    pub subject: Address,
-}
-
-#[contractevent(topics = ["attestation", "revoked"], data_format = "single-value")]
+#[contractevent(topics = ["attestation", "revoked"])]
 pub struct AttestationRevokedEvent {
     pub attestation_id: u64,
+    pub revoked_by: Address,
 }
 
 #[contract]
@@ -27,63 +20,51 @@ pub struct QuidReputationContract;
 
 #[contractimpl]
 impl QuidReputationContract {
-    /// Bootstrap admin for the contract
-    pub fn bootstrap_admin(env: Env, admin: Address) -> Result<(), QuidError> {
-        if env.storage().persistent().has(&DataKey::Admin) {
-            return Err(QuidError::AdminAlreadySet);
+    // -------------------------------------------------------------------------
+    // Admin bootstrap
+    // -------------------------------------------------------------------------
+
+    pub fn initialize(env: Env, admin: Address) -> Result<(), ReputationError> {
+        admin.require_auth();
+
+        if env.storage().instance().has(&DataKey::Admin) {
+            return Err(ReputationError::InvalidInput);
         }
 
-        env.storage().persistent().set(&DataKey::Admin, &admin);
-        env.storage()
-            .persistent()
-            .extend_ttl(&DataKey::Admin, 5184000, 5184000);
-
+        env.storage().instance().set(&DataKey::Admin, &admin);
         Ok(())
     }
 
-    /// Get the current admin
-    pub fn get_admin(env: Env) -> Result<Address, QuidError> {
+    pub fn get_admin(env: Env) -> Result<Address, ReputationError> {
         env.storage()
-            .persistent()
+            .instance()
             .get(&DataKey::Admin)
-            .ok_or(QuidError::AdminNotSet)
+            .ok_or(ReputationError::NotAuthorized)
     }
 
-    /// Issue an attestation for a subject
+    // -------------------------------------------------------------------------
+    // Attestations
+    // -------------------------------------------------------------------------
+
     pub fn issue_attestation(
         env: Env,
         issuer: Address,
         subject: Address,
-        kind: String,
-        label: String,
-        metadata_cid: Option<String>,
-        expires_at: Option<u64>,
-    ) -> Result<u64, QuidError> {
+        attestation_type: String,
+        data_cid: String,
+    ) -> Result<u64, ReputationError> {
         issuer.require_auth();
-
-        if label.is_empty() {
-            return Err(QuidError::InvalidLabel);
-        }
-
-        if let Some(expiry) = expires_at {
-            let now = env.ledger().timestamp();
-            if expiry <= now {
-                return Err(QuidError::InvalidExpiryTime);
-            }
-        }
 
         let attestation_id = Self::get_next_attestation_id(&env);
         let issued_at = env.ledger().timestamp();
 
         let attestation = Attestation {
             id: attestation_id,
-            issuer: issuer.clone(),
-            subject: subject.clone(),
-            kind,
-            label,
-            metadata_cid,
+            issuer,
+            subject,
+            attestation_type,
+            data_cid,
             issued_at,
-            expires_at,
             revoked: false,
         };
 
@@ -93,141 +74,133 @@ impl QuidReputationContract {
 
         env.storage().persistent().extend_ttl(
             &DataKey::Attestation(attestation_id),
-            5184000,
-            5184000,
+            PROFILE_TTL_LEDGERS,
+            PROFILE_TTL_LEDGERS,
         );
-
-        AttestationIssuedEvent {
-            attestation_id,
-            issuer,
-            subject,
-        }
-        .publish(&env);
 
         Ok(attestation_id)
     }
 
-    /// Get an attestation by id
-    pub fn get_attestation(env: Env, attestation_id: u64) -> Result<Attestation, QuidError> {
+    pub fn get_attestation(env: Env, attestation_id: u64) -> Result<Attestation, ReputationError> {
         env.storage()
             .persistent()
             .get(&DataKey::Attestation(attestation_id))
-            .ok_or(QuidError::AttestationNotFound)
+            .ok_or(ReputationError::AttestationNotFound)
     }
 
-    /// Revoke an attestation
-    pub fn revoke_attestation(env: Env, attestation_id: u64) -> Result<(), QuidError> {
+    pub fn revoke_attestation(
+        env: Env,
+        caller: Address,
+        attestation_id: u64,
+    ) -> Result<(), ReputationError> {
+        caller.require_auth();
+
         let mut attestation = Self::get_attestation(env.clone(), attestation_id)?;
 
-        attestation.issuer.require_auth();
-
         if attestation.revoked {
-            return Err(QuidError::AlreadyRevoked);
+            return Err(ReputationError::AlreadyRevoked);
+        }
+
+        let admin = Self::get_admin(env.clone())?;
+        if caller != attestation.issuer && caller != admin {
+            return Err(ReputationError::NotAuthorized);
         }
 
         attestation.revoked = true;
-
         env.storage()
             .persistent()
             .set(&DataKey::Attestation(attestation_id), &attestation);
 
         env.storage().persistent().extend_ttl(
             &DataKey::Attestation(attestation_id),
-            5184000,
-            5184000,
+            PROFILE_TTL_LEDGERS,
+            PROFILE_TTL_LEDGERS,
         );
 
-        AttestationRevokedEvent { attestation_id }.publish(&env);
+        AttestationRevokedEvent {
+            attestation_id,
+            revoked_by: caller,
+        }
+        .publish(&env);
 
         Ok(())
     }
 
+    pub fn get_attestation_count(env: Env) -> u64 {
+        env.storage()
+            .instance()
+            .get(&DataKey::AttestationCount)
+            .unwrap_or(0)
+    }
+
+    pub fn attestation_exists(env: Env, attestation_id: u64) -> bool {
+        env.storage()
+            .persistent()
+            .has(&DataKey::Attestation(attestation_id))
+    }
+
     // -------------------------------------------------------------------------
-    // Public profile getter
+    // Profiles
     // -------------------------------------------------------------------------
 
-    /// Fetch the reputation profile for `subject`.
-    pub fn get_profile(env: Env, subject: Address) -> Result<Profile, QuidError> {
+    pub fn get_profile(env: Env, subject: Address) -> Result<Profile, ReputationError> {
         env.storage()
             .persistent()
             .get(&DataKey::Profile(subject))
-            .ok_or(QuidError::ProfileNotFound)
+            .ok_or(ReputationError::ProfileNotFound)
     }
 
-    // -------------------------------------------------------------------------
-    // Profile Mutations
-    // -------------------------------------------------------------------------
+    pub fn set_profile(env: Env, profile: Profile) -> Result<(), ReputationError> {
+        profile.subject.require_auth();
 
-    /// Record a successful mission for `subject` and add `reward_amount` to their total earnings.
-    #[allow(deprecated)]
-    pub fn increment_success(
-        env: Env,
-        subject: Address,
-        reward_amount: i128,
-    ) -> Result<(), QuidError> {
-        let admin = Self::get_admin(env.clone())?;
-        admin.require_auth();
+        env.storage()
+            .persistent()
+            .set(&DataKey::Profile(profile.subject.clone()), &profile);
 
-        if reward_amount < 0 {
-            return Err(QuidError::InvalidRewardAmount);
-        }
-
-        let mut profile = Self::load_or_default(&env, subject.clone());
-        profile.successful_missions += 1;
-        profile.total_earnings += reward_amount;
-        profile.updated_at = env.ledger().timestamp();
-
-        Self::store_profile(&env, &profile);
-
-        env.events().publish(
-            (
-                soroban_sdk::symbol_short!("Profile"),
-                soroban_sdk::symbol_short!("updated"),
-            ),
-            profile,
+        env.storage().persistent().extend_ttl(
+            &DataKey::Profile(profile.subject),
+            PROFILE_TTL_LEDGERS,
+            PROFILE_TTL_LEDGERS,
         );
 
         Ok(())
     }
 
-    // -------------------------------------------------------------------------
-    // Internal helpers
-    // -------------------------------------------------------------------------
+    pub fn profile_exists(env: Env, subject: Address) -> bool {
+        env.storage().persistent().has(&DataKey::Profile(subject))
+    }
 
     fn get_next_attestation_id(env: &Env) -> u64 {
-        let current: u64 = env
+        let mut count: u64 = env
             .storage()
-            .persistent()
+            .instance()
             .get(&DataKey::AttestationCount)
             .unwrap_or(0);
-
-        let next_id = current + 1;
-
+        count += 1;
         env.storage()
-            .persistent()
-            .set(&DataKey::AttestationCount, &next_id);
-
-        env.storage()
-            .persistent()
-            .extend_ttl(&DataKey::AttestationCount, 5184000, 5184000);
-
-        next_id
+            .instance()
+            .set(&DataKey::AttestationCount, &count);
+        count
     }
 }
 
+// -------------------------------------------------------------------------
+// Internal helpers used by tests
+// -------------------------------------------------------------------------
+
 #[allow(dead_code)]
 impl QuidReputationContract {
-    pub(crate) fn require_admin(env: &Env, caller: &Address) -> Result<(), QuidError> {
+    pub(crate) fn require_admin(env: &Env, caller: &Address) -> Result<(), ReputationError> {
         let admin: Address = env
             .storage()
-            .persistent()
+            .instance()
             .get(&DataKey::Admin)
-            .ok_or(QuidError::AdminNotSet)?;
+            .ok_or(ReputationError::NotAuthorized)?;
 
         admin.require_auth();
 
         if *caller != admin {
-            return Err(QuidError::NotAuthorized);
+            return Err(ReputationError::NotAuthorized);
         }
 
         Ok(())
@@ -248,10 +221,8 @@ impl QuidReputationContract {
             .unwrap_or(Profile {
                 subject,
                 score: 0,
-                successful_missions: 0,
+                missions_completed: 0,
                 missions_created: 0,
-                total_earnings: 0,
-                updated_at: env.ledger().timestamp(),
             })
     }
 }
