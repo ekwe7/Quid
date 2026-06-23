@@ -4,9 +4,8 @@ use soroban_sdk::contracterror;
 #[derive(Copy, Clone, Debug, Eq, PartialEq)]
 pub enum ReputationError {
     NotAuthorized = 1,
-    AttestationNotFound = 2,
+    InvalidInput = 2,
     AlreadyRevoked = 3,
-    InvalidInput = 4,
-    /// No profile exists for the given subject address.
+    AttestationNotFound = 4,
     ProfileNotFound = 5,
 }
