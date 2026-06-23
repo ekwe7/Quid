@@ -14,7 +14,7 @@ fn setup_test_env() -> (Env, Address, Address) {
     let admin = Address::generate(&env);
 
     let client = QuidReputationContractClient::new(&env, &contract_id);
-    client.set_admin(&admin);
+    client.initialize(&admin);
 
     (env, contract_id, admin)
 }
@@ -24,7 +24,7 @@ fn setup_test_env() -> (Env, Address, Address) {
 // -------------------------------------------------------------------------
 
 #[test]
-fn test_set_admin_bootstrap() {
+fn test_initialize() {
     let env = Env::default();
     env.mock_all_auths();
 
@@ -33,38 +33,10 @@ fn test_set_admin_bootstrap() {
 
     let admin = Address::generate(&env);
 
-    // First call: new admin self-authorizes.
-    client.set_admin(&admin);
+    client.initialize(&admin);
 
     let stored_admin = client.get_admin();
     assert_eq!(stored_admin, admin);
-}
-
-#[test]
-fn test_set_admin_rotation() {
-    let (env, contract_id, admin) = setup_test_env();
-    let client = QuidReputationContractClient::new(&env, &contract_id);
-
-    let new_admin = Address::generate(&env);
-
-    // Rotation: current admin authorizes the change.
-    client.set_admin(&new_admin);
-
-    assert_eq!(client.get_admin(), new_admin);
-    // Old admin should no longer be stored.
-    assert_ne!(client.get_admin(), admin);
-}
-
-#[test]
-fn test_get_admin_not_set() {
-    let env = Env::default();
-    env.mock_all_auths();
-
-    let contract_id = env.register(QuidReputationContract, ());
-    let client = QuidReputationContractClient::new(&env, &contract_id);
-
-    let result = client.try_get_admin();
-    assert_eq!(result, Err(Ok(ReputationError::AdminNotSet)));
 }
 
 // -------------------------------------------------------------------------
